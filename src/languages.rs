@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 
 static LANGUAGES: OnceLock<Vec<Language>> = OnceLock::new();
 
+#[allow(dead_code)]
 pub struct Language {
     pub name: String,
     pub extensions: Vec<String>,
