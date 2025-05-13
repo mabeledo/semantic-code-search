@@ -1,6 +1,6 @@
-use std::fs::File;
 use lancedb::connect;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use std::fs::File;
 
 pub async fn index(input_file_uri: String, db_file_uri: String) -> anyhow::Result<()> {
     let file = File::open(input_file_uri)?;
@@ -29,10 +29,10 @@ pub async fn index(input_file_uri: String, db_file_uri: String) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lancedb::arrow::IntoPolars;
     use lancedb::query::ExecutableQuery;
     use polars::df;
     use polars::prelude::*;
-    use lancedb::arrow::IntoPolars;
     use tempfile::TempDir;
 
     async fn create_test_parquet() -> (TempDir, String) {
