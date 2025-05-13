@@ -1,12 +1,14 @@
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use ort::execution_providers::{
-    CoreMLExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
-};
 use polars::datatypes::DataType;
 use polars::datatypes::DataType::List;
 use polars::prelude::{Column, GetOutput, LazyFrame, ParquetWriter, col};
 use polars::series::Series;
 use std::fs;
+
+#[cfg(target_os = "macos")]
+use ort::execution_providers::{
+    CoreMLExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
+};
 
 #[cfg(target_os = "macos")]
 fn register_provider() -> Result<ExecutionProviderDispatch, String> {
