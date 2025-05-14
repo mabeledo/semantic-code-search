@@ -1,20 +1,23 @@
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use fastembed::{Embedding, EmbeddingModel, InitOptions, TextEmbedding};
 use polars::datatypes::DataType;
 use polars::datatypes::DataType::List;
 use polars::prelude::{Column, GetOutput, LazyFrame, ParquetWriter, col};
 use polars::series::Series;
 use std::fs;
-
+use std::sync::OnceLock;
+use anyhow::anyhow;
 #[cfg(target_os = "macos")]
 use ort::execution_providers::{
     CoreMLExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
 };
 
+static TEXT_EMBEDDING_MODEL: OnceLock<TextEmbedding> = OnceLock::new();
+
 #[cfg(target_os = "macos")]
-fn register_provider() -> Result<ExecutionProviderDispatch, String> {
+fn register_provider() -> anyhow::Result<ExecutionProviderDispatch> {
     let coreml = CoreMLExecutionProvider::default();
-    if !coreml.is_available().unwrap() {
-        return Err("CoreML provider is not available".to_string());
+    if !coreml.is_available()? {
+        return Err(anyhow!("CoreML provider is not available".to_string()));
     }
 
     Ok(coreml.with_subgraphs().build())
@@ -25,28 +28,29 @@ fn register_provider() -> Result<ExecutionProviderDispatch, String> {
     todo!()
 }
 
-pub fn create_embeddings(input_file_uri: String, output_file_uri: String) -> Result<(), String> {
-    let mut output_file = fs::File::create(output_file_uri).map_err(|e| e.to_string())?;
-
-    // Read dataframe from file.
-    let dataframe =
-        LazyFrame::scan_parquet(input_file_uri, Default::default()).map_err(|x| x.to_string())?;
-
-    // Create execution provider and model.
-    let execution_provider_dispatch = register_provider()?;
-
-    let model: TextEmbedding = TextEmbedding::try_new(
+fn get_text_embedding_model() -> anyhow::Result<&'static TextEmbedding> {
+    let execution_provider = register_provider()?;
+    TEXT_EMBEDDING_MODEL.get_or_try_init(|| TextEmbedding::try_new(
         InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-            .with_execution_providers(vec![execution_provider_dispatch])
-            .with_show_download_progress(true),
-    )
-    .map_err(|x| format!("Cannot create model: {}", x))?;
+            .with_execution_providers(vec![execution_provider])
+    ))
+}
+
+pub fn create_embeddings_from_file(input_file_uri: String, output_file_uri: String) -> anyhow::Result<()> {
+    let mut output_file = fs::File::create(output_file_uri)?;
+
+    // Read a dataframe from a file.
+    let dataframe =
+        LazyFrame::scan_parquet(input_file_uri, Default::default())?;
+
+    // Create a model.
+    let model: &TextEmbedding = get_text_embedding_model()?;
 
     let mut dataframe_plus_embeddings = dataframe
         .with_column(col("text").alias("embedding").map_list(
             move |x| {
                 let as_string_chunked = x.as_series().unwrap().str()?;
-                let embeddings: Vec<_> = as_string_chunked
+                let embeddings: Vec<Series> = as_string_chunked
                     .into_iter()
                     .flat_map(|y| {
                         model
@@ -61,13 +65,17 @@ pub fn create_embeddings(input_file_uri: String, output_file_uri: String) -> Res
             },
             GetOutput::from_type(List(Box::new(DataType::Float32))),
         ))
-        .collect()
-        .map_err(|x| format!("Could not create embeddings: {x}"))?;
+        .collect()?;
 
     ParquetWriter::new(&mut output_file)
-        .finish(&mut dataframe_plus_embeddings)
-        .map_err(|e| format!("Could not write parquet file: {e}"))?;
+        .finish(&mut dataframe_plus_embeddings)?;
     Ok(())
+}
+
+pub fn create_embeddings_from_string(input_string: String) -> anyhow::Result<Embedding> {
+    let model: &TextEmbedding = get_text_embedding_model()?;
+    let embedding = model.embed::<String>(vec![input_string], Some(32))?;
+    Ok(embedding[0].clone())
 }
 
 #[cfg(test)]
@@ -148,7 +156,7 @@ mod tests {
         let output_file_uri = root_temp_dir.path().join("embed_file.parquet");
 
         // Run the function to test
-        let result = create_embeddings(
+        let result = create_embeddings_from_file(
             input_file_uri.to_str().unwrap().to_string(),
             output_file_uri.to_str().unwrap().to_string(),
         );
@@ -165,9 +173,7 @@ mod tests {
             .unwrap()
             .collect()
             .unwrap();
-
-        println!("Contents: {output_df}");
-
+        
         // Verify the output DataFrame has both text and embedding columns
         assert!(output_df.schema().contains("text"));
         assert!(output_df.schema().contains("embedding"));
