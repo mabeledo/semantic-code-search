@@ -1,15 +1,15 @@
+use anyhow::anyhow;
 use fastembed::{Embedding, EmbeddingModel, InitOptions, TextEmbedding};
+#[cfg(target_os = "macos")]
+use ort::execution_providers::{
+    CoreMLExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
+};
 use polars::datatypes::DataType;
 use polars::datatypes::DataType::List;
 use polars::prelude::{Column, GetOutput, LazyFrame, ParquetWriter, col};
 use polars::series::Series;
 use std::fs;
 use std::sync::OnceLock;
-use anyhow::anyhow;
-#[cfg(target_os = "macos")]
-use ort::execution_providers::{
-    CoreMLExecutionProvider, ExecutionProvider, ExecutionProviderDispatch,
-};
 
 static TEXT_EMBEDDING_MODEL: OnceLock<TextEmbedding> = OnceLock::new();
 
@@ -30,18 +30,22 @@ fn register_provider() -> Result<ExecutionProviderDispatch, String> {
 
 fn get_text_embedding_model() -> anyhow::Result<&'static TextEmbedding> {
     let execution_provider = register_provider()?;
-    TEXT_EMBEDDING_MODEL.get_or_try_init(|| TextEmbedding::try_new(
-        InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-            .with_execution_providers(vec![execution_provider])
-    ))
+    TEXT_EMBEDDING_MODEL.get_or_try_init(|| {
+        TextEmbedding::try_new(
+            InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+                .with_execution_providers(vec![execution_provider]),
+        )
+    })
 }
 
-pub fn create_embeddings_from_file(input_file_uri: String, output_file_uri: String) -> anyhow::Result<()> {
+pub fn create_embeddings_from_file(
+    input_file_uri: String,
+    output_file_uri: String,
+) -> anyhow::Result<()> {
     let mut output_file = fs::File::create(output_file_uri)?;
 
     // Read a dataframe from a file.
-    let dataframe =
-        LazyFrame::scan_parquet(input_file_uri, Default::default())?;
+    let dataframe = LazyFrame::scan_parquet(input_file_uri, Default::default())?;
 
     // Create a model.
     let model: &TextEmbedding = get_text_embedding_model()?;
@@ -67,8 +71,7 @@ pub fn create_embeddings_from_file(input_file_uri: String, output_file_uri: Stri
         ))
         .collect()?;
 
-    ParquetWriter::new(&mut output_file)
-        .finish(&mut dataframe_plus_embeddings)?;
+    ParquetWriter::new(&mut output_file).finish(&mut dataframe_plus_embeddings)?;
     Ok(())
 }
 
@@ -173,7 +176,7 @@ mod tests {
             .unwrap()
             .collect()
             .unwrap();
-        
+
         // Verify the output DataFrame has both text and embedding columns
         assert!(output_df.schema().contains("text"));
         assert!(output_df.schema().contains("embedding"));

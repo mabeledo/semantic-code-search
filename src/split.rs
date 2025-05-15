@@ -109,7 +109,7 @@ impl CodeFileSplitter {
                 .filter(|x| x.extensions.contains(&extension))
                 .map(|y| CodeFileSplitter::split_file(path, y))
                 .next()?
-                .map_err(|e| eprintln!("Failed to process file: {}", e));
+                .map_err(|e| eprintln!("Failed to process file: {e}"));
 
             if maybe_processed_content.is_ok() {
                 let processed_content = maybe_processed_content.unwrap();
