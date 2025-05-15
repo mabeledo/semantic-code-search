@@ -203,7 +203,7 @@ mod tests {
     fn create_temp_file(dir: &Path, name: &str, content: &str) -> PathBuf {
         let file_path = dir.join(name);
         let mut file = File::create(&file_path).expect("Failed to create test file");
-        writeln!(file, "{}", content).expect("Failed to write to test file");
+        writeln!(file, "{content}").expect("Failed to write to test file");
         file_path
     }
 
